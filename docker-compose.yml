@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  devnet-api:
+    build: .
+    container_name: devnet_automation_api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - GNS3_SERVER_URL=http://host.docker.internal:3080
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - .:/app

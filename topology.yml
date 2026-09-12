@@ -1,0 +1,98 @@
+project:
+  name: "DEVNET_AUTOMATION_PROJECT"
+
+devices:
+  - name: "SW_L23_1"
+    template: "Switch L23"
+    node_type: "iou"
+    management_ip: "192.168.100.6"
+    vlans:
+      - id: 10
+        name: "ADMINISTRATION"
+      - id: 20
+        name: "PEDAGOGIE"
+    interfaces:
+      - name: "Ethernet0/0"
+        vlan: 10
+      - name: "Ethernet0/1"
+        ip: "192.168.1.2/24"   # côté R1, port de raccordement (mode routé temporaire, à ajuster si trunk)
+    routes:
+      - destination: "0.0.0.0"
+        mask: "0.0.0.0"
+        next_hop: "192.168.1.1"
+
+  - name: "R1"
+    template: "Switch L23"
+    node_type: "iou"
+    management_ip: "192.168.100.1"
+    interfaces:
+      - name: "Ethernet0/0"
+        ip: "192.168.1.1/24"      # LAN A, vers SW_L23_1
+      - name: "Ethernet0/1"
+        ip: "10.0.0.1/30"          # Routage inter-site vers R2
+      - name: "Ethernet1/0"
+        ip: "192.168.100.1/24"    # Management
+    routes:
+      - destination: "192.168.2.0"
+        mask: "255.255.255.0"
+        next_hop: "10.0.0.2"
+
+  - name: "R2"
+    template: "Switch L3"
+    node_type: "iou"
+    management_ip: "192.168.100.2"
+    interfaces:
+      - name: "Ethernet0/0"
+        ip: "192.168.2.1/24"      # LAN B, vers SW2
+      - name: "Ethernet0/1"
+        ip: "10.0.0.2/30"          # Routage inter-site vers R1
+      - name: "Ethernet1/0"
+        ip: "192.168.100.2/24"    # Management
+    routes:
+      - destination: "192.168.1.0"
+        mask: "255.255.255.0"
+        next_hop: "10.0.0.1"
+
+  - name: "SW2"
+    template: "Switch L23"
+    node_type: "iou"
+    management_ip: "192.168.100.7"
+    interfaces:
+      - name: "Ethernet0/1"
+        ip: "192.168.2.2/24"
+    routes:
+      - destination: "0.0.0.0"
+        mask: "0.0.0.0"
+        next_hop: "192.168.2.1"
+
+  - name: "PC1"
+    template: "VPCS"
+    node_type: "vpcs"
+    management_ip: "192.168.1.10"
+
+  - name: "PC2"
+    template: "VPCS"
+    node_type: "vpcs"
+    management_ip: "192.168.2.10"
+
+links:
+  - node1: "R1"
+    port1: "Ethernet0/1"
+    node2: "R2"
+    port2: "Ethernet0/1"
+  - node1: "R1"
+    port1: "Ethernet0/0"
+    node2: "SW_L23_1"
+    port2: "Ethernet0/1"
+  - node1: "R2"
+    port1: "Ethernet0/0"
+    node2: "SW2"
+    port2: "Ethernet0/1"
+  - node1: "SW_L23_1"
+    port1: "Ethernet0/0"
+    node2: "PC1"
+    port2: "Ethernet0"
+  - node1: "SW2"
+    port1: "Ethernet0/0"
+    node2: "PC2"
+    port2: "Ethernet0"
