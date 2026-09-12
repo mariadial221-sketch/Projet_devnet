@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 import requests
 import yaml
+import time
 from src.validation import verify_ping, verify_interfaces
 import ipaddress
 from pathlib import Path
@@ -85,15 +86,15 @@ def deploy_from_db(nom_projet: str, db: Session = Depends(get_db)):
     try:
         res_list = requests.get(f"{GNS3_SERVER_URL}/projects").json()
         existing_proj = next((p for p in res_list if p["name"] == nom_projet), None)
-        
+
         if existing_proj:
             project_id = existing_proj["project_id"]
             requests.delete(f"{GNS3_SERVER_URL}/projects/{project_id}")
-            
+
         res_proj = requests.post(f"{GNS3_SERVER_URL}/projects", json={"name": nom_projet})
         res_proj.raise_for_status()
         project_id = res_proj.json()["project_id"]
-        
+
         topologie.gns3_project_id = project_id
         db.commit()
     except Exception as e:
@@ -118,7 +119,7 @@ def deploy_from_db(nom_projet: str, db: Session = Depends(get_db)):
     for i, eq in enumerate(coeur_sw):
         pos_x = 200 + (i * 300)
         pos_y = 50
-        
+
         eq_type_clean = eq.type_equipement.strip().upper()
         template_id = TEMPLATE_MAP.get(eq_type_clean)
         if not template_id:
@@ -146,7 +147,7 @@ def deploy_from_db(nom_projet: str, db: Session = Depends(get_db)):
     for i, eq in enumerate(acces_sw):
         pos_x = 200 + (i * 300)
         pos_y = 250
-        
+
         eq_type_clean = eq.type_equipement.strip().upper()
         template_id = TEMPLATE_MAP.get(eq_type_clean)
         if not template_id:
@@ -174,10 +175,10 @@ def deploy_from_db(nom_projet: str, db: Session = Depends(get_db)):
     for i, eq in enumerate(pcs):
         branch_index = i // 2
         sub_index = i % 2
-        
+
         pos_x = (branch_index * 300) + (sub_index * 120) + 100
         pos_y = 450
-        
+
         payload = {
             "name": eq.nom,
             "node_type": "vpcs",
@@ -193,14 +194,13 @@ def deploy_from_db(nom_projet: str, db: Session = Depends(get_db)):
         except Exception as e:
             logger.error(f"Échec création VPCS {eq.nom} : {str(e)}")
 
-    # 3. Câblage automatique des interfaces pour les équipements de ce projet
+    # 3. Câblage automatique des interfaces basé sur les noms normalisés
     equipement_ids = [eq.id for eq in equipements]
     interfaces = db.query(Interface).filter(
         Interface.equipement_id.in_(equipement_ids),
         Interface.target_interface_id.isnot(None)
     ).all()
 
-    # 3. Câblage automatique des interfaces basé sur les noms normalisés
     liens_traites = set()
     liens_crees = 0
 
@@ -209,14 +209,12 @@ def deploy_from_db(nom_projet: str, db: Session = Depends(get_db)):
         if not target_iface:
             continue
 
-        # Récupérer les équipements source et cible pour leurs noms
         eq1 = db.query(Equipement).filter(Equipement.id == iface.equipement_id).first()
         eq2 = db.query(Equipement).filter(Equipement.id == target_iface.equipement_id).first()
-        
+
         if not eq1 or not eq2:
             continue
 
-        # Créer une clé unique non ordonnée basée sur les noms (évite les doublons A<->B et B<->A)
         endpoint_a = (eq1.nom, iface.nom)
         endpoint_b = (eq2.nom, target_iface.nom)
         pair = tuple(sorted([endpoint_a, endpoint_b], key=lambda x: (x[0], x[1])))
@@ -248,13 +246,21 @@ def deploy_from_db(nom_projet: str, db: Session = Depends(get_db)):
             except Exception as e:
                 logger.error(f"Erreur inattendue création du lien : {str(e)}")
 
+    # 4. Démarrage automatique de tous les équipements du projet
+    try:
+        res_start = requests.post(f"{GNS3_SERVER_URL}/projects/{project_id}/nodes/start")
+        res_start.raise_for_status()
+        logger.info(f"Tous les nœuds du projet '{nom_projet}' ont été démarrés automatiquement.")
+        time.sleep(20)
+    except Exception as e:
+        logger.error(f"Erreur lors du démarrage automatique des nœuds : {str(e)}")
+
     return {
         "status": "success",
         "projet": nom_projet,
         "noeuds_deployes": len(gns3_node_map),
         "liens_cables": liens_crees
     }
-
 
 @router.post("/importer_yaml/{nom_projet}", status_code=status.HTTP_201_CREATED)
 def importer_yaml_vers_db(nom_projet: str, db: Session = Depends(get_db)):
